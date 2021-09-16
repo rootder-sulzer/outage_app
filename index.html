@@ -6,6 +6,9 @@
     </style>
     <body style="height:800px; width:100vw; background-color: aquamarine; padding: 0px; margin:0px;">
         <h1>HELLO WORLD!</h1>
-        <div onclick="pywebview.api.sayHi()" id="move_item" class="boxsize box">MOVE ME</div>
+        <div id="move_item" class="boxsize box">MOVE ME</div>
     </body>
+    <script>
+        document.getElementById("move_item").addEventListener("click",()=>{ pywebview.api.sayHi() })
+    </script>
 </html>
