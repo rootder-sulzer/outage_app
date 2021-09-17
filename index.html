@@ -1,4 +1,819 @@
 <html>
-    <body>
-    </body>
+<script>
+    'use strict';
+    let monthName = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+    let initialized = false;
+    let projectData = {};
+    let employeeList = [];
+    let employeePTO = {};
+    let isMouseDown = false;
+    let targetElem = -1;
+    let menuCollapsed = false;
+    let startDate = "";
+    let lastDate = "";
+    let textHtWidthRatio = 0.55;
+    let dayCharWidth = 3;
+    let dayWidthRatio = textHtWidthRatio * dayCharWidth;
+    let dateFontSize = 12;
+    let dayWidth = dateFontSize * dayWidthRatio;
+    var capacityObj = {};
+    let daysInRange = 0;
+    let offsetTop = 0;
+    let mouseInitialX = 0;
+    let mouseInitialXList = [];
+    var supervisorList = {
+        "Colt Bateman": "LightBlue",
+        "Jeff Monych": "LightPink",
+        "Jim Goode": "LightCyan",
+        "Bryan Bounds": "LightGoldenRodYellow",
+        "William Funke": "LightSeaGreen",
+        "Jacob Ebbecke": "LightGreen",
+        "Michael Matthews": "Plum"
+    }
+
+    function create_date_object(dateStr) {
+        let tArr = dateStr.split("-");
+        let tDate = new Date(parseInt(tArr[0]), parseInt(tArr[1]) - 1, parseInt(tArr[2]));
+        return tDate;
+    }
+
+    function days_between_dates(d1, d2) {
+        return Math.round(Math.abs(d2 - d1) / 86400000);
+    }
+
+    function months_between_dates(d1, d2) {
+        return Math.abs(d2.getMonth() - d1.getMonth() + (d2.getFullYear() - d1.getFullYear()) * 12);
+    }
+
+    function set_capacity(projectID,taskID, changeAmt = 1) {
+        let taskData = projectData["projects"][projectID]["tasks"][taskID]
+        let tDate = create_date_object(taskData["start"]);
+        let daysDiff = days_between_dates(startDate, tDate);
+
+        for (let day = daysDiff; day < daysDiff + taskData["duration"]; day++) {
+            capacityObj["auxdayworkers"][day] += taskData["auxdayworkers"];
+            capacityObj["auxnightworkers"][day] += taskData["auxnightworkers"];
+            for (const employee of taskData["employees"]) {
+                if (employee == "") { continue; }
+                capacityObj[employee][day] += changeAmt;
+            }
+        }
+    }
+
+    function update_capacity() {
+        let newList = [...employeeList,"auxdayworkers","auxnightworkers"];
+        newList.map(val=>{capacityObj[val]=Array.from({length:daysInRange},(v,k)=>0)});
+        
+        let projSection = document.getElementById("main");
+        for(const projectID of Object.keys(projectData["projects"])){
+            for(const taskID of Object.keys(projectData["projects"][projectID]["tasks"])){
+                set_capacity(projectID, taskID);
+            }
+        }
+
+        let outputStrDay = "";
+        let outputStrNight = "";
+        for (let day = 0; day < daysInRange; day++) {
+            let percentDay = 0;
+            let percentNight = 0;
+            let employeesOnDays = 0;
+            let employeesOnNights = 0;
+            for (const employeeName of employeeList) {
+                percentDay += capacityObj[employeeName][day] * projectData["general"]["employeeSchedule"][employeeName][parseInt(day/7)] * Math.abs(isFinite(projectData["general"]["employeePTO"][employeeName][day])-1);
+                percentNight += capacityObj[employeeName][day] * Math.abs(projectData["general"]["employeeSchedule"][employeeName][parseInt(day/7)]-1) * Math.abs(isFinite(projectData["general"]["employeePTO"][employeeName][day])-1);
+                employeesOnDays += projectData["general"]["employeeSchedule"][employeeName][parseInt(day/7)];
+                employeesOnNights += Math.abs(projectData["general"]["employeeSchedule"][employeeName][parseInt(day/7)]-1);
+            }
+            percentDay = percentDay + capacityObj["auxdayworkers"][day];
+            percentNight = percentNight + capacityObj["auxnightworkers"][day];
+
+            percentDay = Math.max(Math.min(Math.round((percentDay / Math.max(1, employeesOnDays)) * 100), 999),0);
+            percentNight = Math.max(Math.min(Math.round((percentNight / Math.max(1, employeesOnNights)) * 100), 999),0);
+
+            if (isNaN(percentDay)) { percentDay = 0; }
+            if (isNaN(percentNight)) { percentNight = 0; }
+
+            let bgColorDay = `hsla(${Math.max(172 - Math.floor(percentDay**1.05), 0)},100%,50%,1.0)`;
+            let bgColorNight = `hsla(${Math.max(172 - Math.floor(percentNight**1.05), 0)},100%,50%,1.0)`;
+            outputStrDay += `<span id="day_${day}" style="background-color:${bgColorDay}; width: 19.8px; flex-shrink: 0;">${percentDay}%</span>`;
+            outputStrNight += `<span id="night_${day}" style="background-color:${bgColorNight}; width: 19.8px; flex-shrink: 0;">${percentNight}%</span>`;
+        }
+
+        document.getElementById("capacityIndicatorDay").innerHTML = outputStrDay;
+        document.getElementById("capacityIndicatorNight").innerHTML = outputStrNight;
+    }
+
+    function build_projects() {
+        let taskData = "<div style='top:50px;'>.";
+        let topVal = 50;
+
+        // SORT object by due date first.
+        let projects = Object.keys(projectData["projects"]);
+        projects = projects.filter((val,index)=>{ return val != "general"});
+        projects.sort( (v1,v2)=>{return create_date_object(projectData["projects"][v1]["tasks"]["0"]["due"]) - create_date_object(projectData["projects"][v2]["tasks"]["0"]["due"]) } );
+        
+        let currentProj = "";
+
+        for (const project_id of projects) {
+            for (const task_id of Object.keys(projectData["projects"][project_id]["tasks"])) {
+                let task = projectData["projects"][project_id]["tasks"][task_id];
+                let widthPx = (parseInt(task["duration"]) * dateFontSize * dayWidthRatio) + "px";
+                let topPx = String(topVal) + "px";
+                let tDate = create_date_object(task["start"]);
+                tDate = Math.max(tDate, startDate);
+                let daysBetween = days_between_dates(tDate, startDate);
+                let leftPx = String((daysBetween) * dayWidth) + "px";
+                let supervisorColor = "white";
+                let borderStyle = "1px solid black";
+                let isLate = false;
+                
+                let dueDate = create_date_object(task["due"]);
+                let completionDate = new Date(startDate.valueOf());
+                completionDate.setDate(completionDate.getDate() + daysBetween + parseInt(task["duration"]));
+                let fontColor = "black";
+                if(completionDate>dueDate){fontColor = "red";}
+
+                if (supervisorList[task["supervisor"]] != "") { supervisorColor = supervisorList[task["supervisor"]]; }
+
+                if (projectData["projects"][project_id]["tasks"][0]["outage"] == true | task["outage"] == true) { borderStyle = "3px solid red"; }
+
+                if(currentProj != project_id){ 
+                    taskData += "</div><div class='datablockcontainer'>";
+                }
+
+                taskData += `
+                        <div id="${project_id}-${task_id}" style="color:${fontColor}; background:${supervisorColor}; border:${borderStyle}; width:${widthPx}; left:${leftPx};" class="datablock" data-project_id="${project_id}" data-task_id="${task_id}"'>
+                            ${project_id}-${task["activity"]} <br> ${task["customer"]}
+                        </div>
+                    `;
+
+                currentProj = project_id;
+            }
+            topVal += 32;
+        }
+
+        taskData += "</div>";
+        document.getElementById("main").innerHTML = taskData;
+
+        update_capacity();
+    }
+
+    function setup_sidebar() {
+        let sidebarContent = "";
+        for (const elem of employeeList) {
+            sidebarContent += `
+                    <div class="employeeSubContainer">
+                        <input type="checkbox" id="emp_${elem}" name="emp_${elem}" value="${elem}" onclick="handle_employee_assignment()">
+                        <label for="emp_${elem}"><span id="lbl_${elem}">${elem}</span></label>
+                        <div id="emp_${elem}_popup" class="employeePopup"></div>
+                    </div>
+                `;
+        }
+        document.getElementById("employees").innerHTML = sidebarContent;
+    }
+
+    function setup_dates() {
+        let colorAlt = true;
+        let dateTxt = "";
+        let monthsBetweenDates = months_between_dates(startDate, lastDate);
+        let initialDay = startDate.getDate();
+        for (let i = 1; i <= monthsBetweenDates+1; i++) {
+            let datestring = "";
+            let tDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 0);
+            let daysInMonth = parseInt(tDate.getDate());
+
+            for (let k = initialDay; k <= daysInMonth; k++) {
+                tDate.setDate(k);
+                let colorClass = "";
+                if (tDate.getDay() == 1) { colorClass = "dataRed" }
+                if (k < 10) {
+                    datestring = datestring + `<span class='${colorClass}'>0${k}-</span>`;
+                } else {
+                    datestring = datestring + `<span class='${colorClass}'>${k}-</span>`;
+                }
+            }
+            if (colorAlt == true) { dateTxt += `<div class="dateColorA">${monthName[tDate.getMonth()]}<br>${datestring}</div>`; }
+            else { dateTxt += `<div class="dateColorB">${monthName[tDate.getMonth()]}<br>${datestring}</div>`; }
+            colorAlt = !colorAlt;
+            initialDay = 1;
+        }
+        document.getElementById("datebar").innerHTML = dateTxt;
+    }
+
+    function setup_supervisor_dropdown() {
+        let outputStr = "";
+        for (const supervisor of Object.keys(supervisorList)) {
+            outputStr += `<div id="${supervisor}" class="supervisorSelection">${supervisor}</div>`;
+        }
+        document.getElementById("supervisorDropdown").innerHTML = outputStr;
+    }
+
+    function loadscript() {
+        setup_supervisor_dropdown();
+        document.getElementById("main").addEventListener("mousedown", event => mouse_down(event));
+        document.getElementById("main").addEventListener("mouseup", event => mouse_up(event));
+        document.getElementById("main").addEventListener("mousemove", event => mouse_move(event));
+        document.getElementById("sidebar").addEventListener("mousedown", event => menu_clicked(event));
+    }
+
+    function mouse_down(event) {
+        if ( event.target.classList.contains("datablock") == false ) { return 0; }
+        isMouseDown = true;
+        targetElem = event.target;
+        mouseInitialX = parseInt(event.target.style.left) - event.clientX;
+        let taskData = projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id];
+
+        document.getElementById("outageBtn").checked = taskData["outage"];
+        document.getElementById("activeProject").value = targetElem.dataset.project_id;
+        document.getElementById("activeCustomer").value = taskData["customer"];
+        document.getElementById("activeDueDate").value = taskData["due"];
+        document.getElementById("activeActivity").value = taskData["activity"];
+        document.getElementById("activeDuration").value = parseInt(taskData["duration"]);
+        document.getElementById("supervisorBtn").innerHTML = taskData["supervisor"];
+        document.getElementById("activeAuxDayWorkers").value = taskData["auxdayworkers"];
+        document.getElementById("activeAuxNightWorkers").value = taskData["auxnightworkers"];
+  
+        if(taskData["outage"]==true){
+            mouseInitialXList = [];
+            for(const taskIndex of Object.keys(projectData["projects"][targetElem.dataset.project_id]["tasks"])){
+                let siblingTask = document.getElementById(`${targetElem.dataset.project_id}-${taskIndex}`);
+                mouseInitialXList.push(parseInt(siblingTask.style.left) - event.clientX);
+            }
+        }
+
+        for (const elem of employeeList) {
+            let chkbox = document.getElementById("emp_" + elem);
+            chkbox.checked = false;
+        }
+
+        for (const elem of taskData["employees"]) {
+            if (elem == "") { return 0; }
+            let chkbox = document.getElementById("emp_" + elem);
+            chkbox.checked = true;
+        }
+    }
+
+    function check_employee_overlap(daysFromStart, daysOfDuration) {
+        for (const employee of employeeList) {
+            let employeeBox = document.getElementById(`lbl_${employee}`);
+            employeeBox.style.color = "black";
+            for (let day = daysFromStart; day < daysFromStart + daysOfDuration; day++) {
+                if (capacityObj[employee][day] > 1) {
+                    employeeBox.style.color = "red";
+                    break;
+                }
+                if (capacityObj[employee][day] == 1) {
+                    employeeBox.style.color = "gray";
+                }
+            }
+
+            employeeBox.style.backgroundColor = "";
+            if( projectData["general"]["employeeSchedule"][employee][parseInt(daysFromStart/7)] == 0 ){
+                employeeBox.style.backgroundColor = "thistle";
+            }
+        }
+    }
+
+    function check_lateness(element, daysFromStart, dueDate, endDate){
+        endDate.setDate(endDate.getDate())
+        if(dueDate<endDate){
+            element.style.color = "red";
+            return 0;
+        }
+        element.style.color = "black";
+    }
+
+    function update_employee_popup(projStartDate,projCompleteDate){
+        for (const employeeName of employeeList){
+            document.getElementById(`emp_${employeeName}_popup`).innerHTML = "";
+        }
+        let projStart = new Date();
+        let projCompete = new Date();
+        for(const projID of Object.keys(projectData["projects"])){
+            for(const taskID of Object.keys(projectData["projects"][projID]["tasks"])) {
+                for(const employeeName of projectData["projects"][projID]["tasks"][taskID]["employees"]){
+                    projStart = create_date_object(projectData["projects"][projID]["tasks"][taskID]["start"]);
+                    projCompete = create_date_object(projectData["projects"][projID]["tasks"][taskID]["complete"]);
+                    if((projStart <= projStartDate & projCompete >= projStartDate) | (projStart >= projStartDate & projStart <= projCompleteDate)){
+                        document.getElementById(`emp_${employeeName}_popup`).innerHTML += `${projID}<br>`;
+                    }
+                }
+            }
+        }
+    }
+
+    function update_task_data(projectID,taskID){
+        let element = document.getElementById(`${projectID}-${taskID}`);
+        let taskData = projectData["projects"][projectID]["tasks"][taskID];
+        let daysFromStart = Math.round(parseFloat(element.style.left) / (dayWidthRatio * dateFontSize));
+        let daysOfDuration = parseInt(taskData["duration"]);
+        let dueDate = create_date_object(taskData["due"]);
+        
+        let beginDate = new Date(startDate.valueOf());
+        beginDate.setDate(beginDate.getDate() + daysFromStart);
+        beginDate.setHours(0,0,0,0);
+        projectData["projects"][projectID]["tasks"][taskID]["start"] = beginDate.toISOString().substring(0, 10);
+        
+        let completeDate = new Date(startDate.valueOf());
+        completeDate.setDate(completeDate.getDate() + daysFromStart + daysOfDuration);
+        completeDate.setHours(0,0,0,0);
+        projectData["projects"][projectID]["tasks"][taskID]["complete"] = completeDate.toISOString().substring(0, 10);
+        
+        check_lateness(element, daysFromStart, dueDate, completeDate);
+        update_capacity();
+        check_employee_overlap(daysFromStart, daysOfDuration);
+        update_employee_popup(beginDate,completeDate);
+    }
+
+    function mouse_up(event) {
+        isMouseDown = false;
+        if (targetElem == -1) { return 0 }
+        let taskData = projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id];
+
+        if(taskData["outage"]==true){
+            for(const taskIndex of Object.keys(projectData["projects"][targetElem.dataset.project_id]["tasks"])){
+                update_task_data(targetElem.dataset.project_id,taskIndex);
+            }
+        } else {
+            update_task_data(targetElem.dataset.project_id,targetElem.dataset.task_id);
+        }
+        document.getElementById("activeStartDate").value = projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["start"];
+        document.getElementById("activeCompletionDate").value = projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["complete"];
+    }
+
+    function mouse_move(event) {
+        if (isMouseDown == false) { return 0; }
+   
+        let taskData = projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id];
+
+        if(taskData["outage"]==true){
+            for(let i=0; i<mouseInitialXList.length; i++){
+                let siblingTask = document.getElementById(`${targetElem.dataset.project_id}-${i}`);
+                siblingTask.style.left = (dayWidth*Math.floor(Math.max(event.clientX + mouseInitialXList[i], 0)/dayWidth)) + "px";
+            }
+            return 0;
+        }
+        targetElem.style.left = (dayWidth*Math.floor(Math.max(event.clientX + mouseInitialX, 0)/dayWidth)) + "px";
+    }
+
+    function menu_clicked(event) {
+        if (menuCollapsed == true) {
+            event.target.style.right = "0%";
+            menuCollapsed = false;
+            return 0;
+        }
+        event.target.style.right = "-400px";
+        menuCollapsed = true;
+    }
+
+    function handle_employee_assignment() {
+        if (targetElem == -1) { return 0; }
+        let tempList = [];
+        for (let i = 0; i < employeeList.length; i++) {
+            if (document.getElementById("emp_" + employeeList[i]).checked == true) {
+                tempList.push(employeeList[i]);
+            }
+        }
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["employees"] = tempList;
+
+        update_capacity();
+    }
+
+    function handle_duration() {
+        if (targetElem == -1) { return 0; }
+
+        let prevEndPt = new Date("2020-1-1");
+        for(const taskID of Object.keys(projectData["projects"][targetElem.dataset.project_id]["tasks"])){
+            let sDate = new Date(projectData["projects"][targetElem.dataset.project_id]["tasks"][taskID]["start"]);
+            if(sDate < prevEndPt){ sDate = new Date(prevEndPt.toISOString().substring(0, 10)) }
+            if(sDate > prevEndPt & taskID>0 & projectData["projects"][targetElem.dataset.project_id]["tasks"][0]["outage"]==true){ sDate = new Date(prevEndPt.toISOString().substring(0, 10)); }
+            
+            projectData["projects"][targetElem.dataset.project_id]["tasks"][taskID]["start"] = sDate.toISOString().substring(0, 10);
+            
+            prevEndPt = new Date( sDate.toISOString().substring(0, 10) );
+            prevEndPt.setDate(prevEndPt.getDate() + projectData["projects"][targetElem.dataset.project_id]["tasks"][taskID]["duration"]);
+        }
+    }
+
+    function import_file_manager(){
+        pywebview.api.handle_import();
+    }
+
+    function export_file_manager() {
+        pywebview.api.handle_export(JSON.stringify(projectData));
+    }
+
+    function export_file_manager(callback) {
+        if (initialized == false) { return 0; }
+        update_over_capacity();
+        let todayDate = new Date().toISOString().substring(0, 10);
+        handle_file_export(JSON.stringify(projectData), `schedule_capacity_(${todayDate}).json`, "txt");
+    }
+
+    function update_over_capacity(){
+        for(const project_id of Object.keys(projectData["projects"])){
+            for(const task_id of Object.keys(projectData["projects"][project_id]["tasks"])){
+                projectData["projects"][project_id]["tasks"][task_id]["over_capacity"] = false;
+                for(let dayIndex=0; dayIndex<projectData["projects"][project_id]["tasks"][task_id]["duration"]; dayIndex++){
+                    let sDate = new Date(projectData["projects"][project_id]["tasks"][task_id]["start"]);
+                    let daysFromStart = days_between_dates(startDate, sDate);
+
+                    let capacityDay = parseInt(document.getElementById(`day_${daysFromStart}`).innerHTML);
+                    let capacityNight = parseInt(document.getElementById(`night_${daysFromStart}`).innerHTML);
+
+                    // CHECK IF EMPLOYEE IS ASSIGNED AND OVER CAPACITY
+                    let finished = false;
+                    for(const employeeName of projectData["projects"][project_id]["tasks"][task_id]["employees"]){
+                        if(capacityDay>100 & projectData["general"]["employeeSchedule"][employeeName][dayIndex+daysFromStart]==1){
+                            projectData["projects"][project_id]["tasks"][task_id]["over_capacity"] = true;
+                            finished = true;
+                        }
+                        if(capacityNight>100 & projectData["general"]["employeeSchedule"][employeeName][dayIndex+daysFromStart]==0){
+                            projectData["projects"][project_id]["tasks"][task_id]["over_capacity"] = true;
+                            finished = true;
+                        }
+                    }
+                    if(finished==true){break;}
+                }
+            }
+        }
+    }
+
+    function delete_project() {
+        if (initialized == false) { return 0; }
+        let newProject = document.getElementById("activeProject").value;
+        let newActivity = document.getElementById("activeActivity").value;
+        if (newProject == "" | newActivity == "") { return 0; }
+        for (const elem of Object.keys(projectData["projects"][newProject]["tasks"])) {
+            if (projectData["projects"][newProject]["tasks"][elem]["activity"] == newActivity) {
+                delete projectData["projects"][newProject]["tasks"][elem];
+                build_projects();
+                return 0;
+            }
+        }
+    }
+
+    function update_project() {
+        if (targetElem == -1) { return 0; }
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["outage"] = document.getElementById("outageBtn").checked;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["customer"] = document.getElementById("activeCustomer").value;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["activity"] = document.getElementById("activeActivity").value;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["supervisor"] = document.getElementById("supervisorBtn").innerHTML;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["due"] = document.getElementById("activeDueDate").value;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["start"] = document.getElementById("activeStartDate").value;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["complete"] = document.getElementById("activeCompletionDate").value;
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["auxdayworkers"] = parseInt(document.getElementById("activeAuxDayWorkers").value);
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["auxnightworkers"] = parseInt(document.getElementById("activeAuxNightWorkers").value);
+        projectData["projects"][targetElem.dataset.project_id]["tasks"][targetElem.dataset.task_id]["duration"] = parseInt(document.getElementById("activeDuration").value);
+        
+        handle_duration();
+        build_projects();
+    }
+
+    function add_project() {
+        if (initialized == false) { return 0; }
+
+        let newOutage = document.getElementById("outageBtn").checked;
+        let newProject = document.getElementById("activeProject").value;
+        let newCustomer = document.getElementById("activeCustomer").value;
+        let newActivity = document.getElementById("activeActivity").value;
+        let newDuration = Math.max(1, document.getElementById("activeDuration").value);
+        let newDueDate = document.getElementById("activeDueDate").value;
+        let newStart = document.getElementById("activeStartDate").value;
+        let newCompletion = document.getElementById("activeCompletionDate").value;
+        let newSupervisor = document.getElementById("supervisorBtn").innerHTML;
+
+        if (newProject == "" | newActivity == "") { return 0; }
+        if (newStart == null) { newStart = startDate.toISOString().substring(0, 10); }
+        if (projectData["projects"][newProject] == null) { projectData["projects"][newProject] = { "id": `${newProject}`, "tasks": {} }; }
+
+        let projectIndex = 0;
+        for (const elem of Object.keys(projectData["projects"][newProject]["tasks"])) { projectIndex = Math.max(parseInt(elem), projectIndex); }
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`] = { "customer": "", "activity": "", "due": "", "start": "", "complete": "", "duration": "", "supervisor": "", "employees": "" };
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["outage"] = `${newOutage}`;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["customer"] = `${newCustomer}`;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["activity"] = `${newActivity}`;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["supervisor"] = `${newSupervisor}`;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["due"] = newDueDate;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["start"] = newStart;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["complete"] = newCompletion;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["duration"] = newDuration;
+        projectData["projects"][newProject]["tasks"][`${projectIndex + 1}`]["employees"] = [];
+
+        build_projects();
+    }
+
+    function initialize_chart() {
+        initialized = true;
+        let startVal = document.getElementById("activeStartDate").value;
+        let lastVal = document.getElementById("activeCompletionDate").value;
+        if (startVal == null | lastVal == null) { return 0; }
+        let dayArr = startVal.split("-");
+        startDate = create_date_object(`${dayArr[0]}-${dayArr[1]}-01`);
+        lastDate = create_date_object(lastVal);
+        daysInRange = Math.round(Math.abs(lastDate - startDate) / 86400000);
+        employeeList.map(val => { capacityObj[val] = Array.from({ length: daysInRange }, (v, k) => 0) });
+        setup_sidebar();
+        setup_dates();
+        build_projects();
+    }
+
+    function toggle_dropdown() {
+        document.getElementById("supervisorDropdown").classList.toggle("show");
+    }
+
+    function handle_supervisor_change(event) {
+        let supervisorBtn = document.getElementById("supervisorBtn");
+        if (event.target.classList.contains('supervisorSelection')) {
+            supervisorBtn.innerHTML = event.target.id;
+        }
+        if (event.target != supervisorBtn) {
+            document.getElementById("supervisorDropdown").classList.remove("show");
+        }
+    }
+
+    function find_project(event){
+        let projectsArr = Object.keys(projectData["projects"]);
+        let projectName = document.getElementById("activeProject").value;
+        
+        let pageWidth = document.body.scrollWidth;
+        let pageHeight = document.body.scrollHeight;
+
+        if(projectsArr.includes(projectName)==false){return 0;}
+        let project = projectData["projects"][projectName]["tasks"]["0"];
+        let projPos = cumulativeOffset(document.getElementById(`${projectName}-0`));
+
+        document.body.scrollTop = parseInt(projPos.top-50);
+        document.body.scrollLeft = parseInt(projPos.left);
+    }
+
+    function cumulativeOffset(element) {
+        var top = 0, left = 0;
+        do {
+            top += element.offsetTop  || 0;
+            left += element.offsetLeft || 0;
+            element = element.offsetParent;
+        } while(element);
+
+        return {
+            top: top,
+            left: left
+        };
+    };
+
+    window.onclick = function (event) {
+        handle_supervisor_change(event);
+    }
+</script>
+
+<style>
+    #container {
+        background-color: whitesmoke;
+        width: 100vw;
+        padding: 0%;
+        margin: 0%;
+    }
+
+    #main {
+        width: 100vw;
+        padding: 0%;
+        margin: 0%;
+    }
+
+    #sidebar {
+        background: rgb(43, 54, 58);
+        height: 100vh;
+        width: 400px;
+        position: fixed;
+        z-index: 10;
+        right: 0%;
+        padding: 0px 5px;
+    }
+
+    #sidebar:hover {
+        background: rgb(35, 159, 204);
+    }
+
+    #sidebarInner {
+        background: whitesmoke;
+        height: 100%;
+        width: 390px;
+        margin-left: 5px;
+        padding: 5px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-auto-rows: 24px;
+    }
+
+    #employees {
+        grid-column: 1/3;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border: 1px gray solid;
+        height: fit-content;
+        width: 100%;
+    }
+
+    .datablockcontainer{
+        height:30px;
+        width: 100%;
+        margin: 7px 0px;
+    }
+
+    .datablock {
+        height: 30px;
+        position: absolute;
+        user-select: none;
+        text-align: center;
+        z-index: 1;
+        border: 1px solid black;
+        font-size: 11px;
+    }
+
+    .dataRed {
+        background-color: rgb(255, 159, 142);
+    }
+
+    .dataYellow {
+        background-color: rgb(253, 245, 173);
+    }
+
+    .dataBlue {
+        background-color: rgb(149, 199, 255);
+    }
+
+    .backgroundBlock {
+        height: 100vh;
+        position: absolute;
+        z-index: 0;
+    }
+
+    .dateContainer {
+        background: rgb(44, 126, 156);
+        user-select: none;
+        width: 100%;
+        height: 30px;
+        position: sticky;
+        top: 0px;
+        z-index: 4;
+    }
+
+    .datebar {
+        display: flex;
+        flex-wrap: nowrap;
+        top: 0px;
+    }
+
+    .capacityIndicator {
+        font-family: monospace;
+        font-size: 9px;
+        width: 100%;
+        height: 10px;
+        z-index: 4;
+        display: flex;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+    }
+
+    .dateColorA {
+        background-color: rgb(159, 209, 159);
+        text-align: center;
+        width: fit-content;
+        white-space: nowrap;
+        font-family: monospace;
+        font-size: 12px;
+    }
+
+    .dateColorB {
+        background-color: rgb(168, 168, 168);
+        text-align: center;
+        width: fit-content;
+        white-space: nowrap;
+        font-family: monospace;
+        font-size: 12px;
+    }
+
+    .dropdownBtn {
+        width: 195px;
+        height: 24px;
+    }
+
+    .dropdown {
+        position: relative;
+        display: inline-block;
+    }
+
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+        z-index: 15;
+    }
+
+    .dropdown-content div {
+        color: black;
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+    }
+
+    .dropdown-content div:hover {
+        background-color: #ddd;
+    }
+
+    .show {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .supervisorSelection {
+        width: 100%;
+        background-color: #f1f1f1;
+        user-select: none;
+    }
+
+    .employeeSubContainer{
+        top: 0px;
+        left: 0px;
+        position: relative;
+        user-select: none;
+    }
+
+    .employeeSubContainer .employeePopup{
+        top:20px;
+        left: 0px;
+        padding: 0px 2px;
+        user-select: none;
+        position:absolute;
+        display: none;
+        background-color: rgb(248, 252, 201);
+        z-index: 14;
+    }
+
+    .employeeSubContainer:hover .employeePopup{
+        top:20px;
+        left: 0px;
+        display: grid;
+        width: fit-content;
+        height: fit-content;
+    }
+</style>
+
+<meta charset="utf-8">
+<body id="container" onload="loadscript();">
+    <div id="sidebar">
+        <div id="sidebarInner">
+            <button style="grid-column: 1/3; background-color: rgb(133, 235, 155);"
+                onclick="build_projects()">refresh</button>
+                <button onclick="import_file_manager()">Import</button>
+                <button onclick="export_file_manager()">Export</button>
+                <!-- <button onclick="import_file_manager(handle_file_import)">Import</button>
+                <button onclick="export_file_manager(handle_file_export)">Export</button> -->
+                <div style="grid-column: 1/3;"></div>
+
+            <label for="outageBtn">Outage:</label>
+            <input type="checkbox" id="outageBtn" name="outageBtn">
+
+            <div>Project:</div>
+            <div style="display: grid; grid-template-columns: 4fr 1fr;">
+                <input type="text" id="activeProject">
+                <button onclick="find_project()">🔎</button>
+            </div>
+            <div>Customer:</div><input type="text" id="activeCustomer">
+
+            <div>Supervisor:</div>
+            <div class="dropdown">
+                <button id="supervisorBtn" onclick="toggle_dropdown()" class="dropdownBtn"></button>
+                <div id="supervisorDropdown" class="dropdown-content">-</div>
+            </div>
+
+            <div>Activity:</div><input type="text" id="activeActivity">
+            <div>Duration:</div><input type="number" id="activeDuration">
+            <div>Due Date:</div><input type="date" id="activeDueDate">
+            <div>Start Date:</div><input type="date" id="activeStartDate">
+            <div>Completion Date:</div><input type="date" id="activeCompletionDate">
+            <div style="grid-column: 1/3; display: grid; grid-template-columns: 1fr;">
+                <button onclick="update_project()">UPDATE</button>
+                <!-- <button onclick="add_project()">ADD</button>
+                <button onclick="delete_project()">REMOVE</button> -->
+            </div>
+            <div></div><div></div>
+            <div>AUX Day Workers:</div><input type="number" id="activeAuxDayWorkers">
+            <div>AUX Night Workers:</div><input type="number" id="activeAuxNightWorkers">
+            <div>Employees Assigned:</div>
+            <div>-</div>
+            <div id="employees"></div>
+        </div>
+    </div>
+
+    <div id="dateContainer" class="dateContainer">
+        <div id="datebar" class="datebar"></div>
+        <div id="capacityIndicatorDay" class="capacityIndicator" style="top:30px;"></div>
+        <div id="capacityIndicatorNight" class="capacityIndicator" style="top:40px;"></div>
+    </div>
+    <div id="main"></div>
+    <div id="contents"></div>
+
+</body>
+
 </html>
