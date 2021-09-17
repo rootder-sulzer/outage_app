@@ -9,9 +9,9 @@
         <div id="move_item" class="boxsize box">MOVE ME</div>
     </body>
     <script>
+        var data = 0;
         document.getElementById("move_item").addEventListener("click",()=>{
-            console.log(hello);
-            pywebview.api.sayHi();
+            pywebview.api.sayHi(data);
         })
     </script>
 </html>
