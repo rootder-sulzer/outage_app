@@ -5,14 +5,21 @@
         .box:hover{background-color: blue;}
     </style>
     <body style="height:800px; width:100vw; background-color: aquamarine; padding: 0px; margin:0px;">
-        <h1>HELLO WORLD!</h1> <h1>WHAT'S UP?</h1>
+        <h1>HELLO WORLD!</h1>
         <div id="move_item" class="boxsize box">MOVE ME</div>
     </body>
     <script>
-        document.getElementById("move_item").addEventListener("click",()=>{ pywebview.api.sayHi() })
-        
+        document.getElementById("move_item").addEventListener("click",()=>{
+            var temp = pywebview.api.sayHi();
+            document.getElementById("move_item").style.backgroundColor = "purple";
+        })
+
         function flip_color(){
             document.getElementById("move_item").style.backgroundColor = "purple";
+        }
+
+        function change_color(color){
+            document.getElementById("move_item").style.backgroundColor = color;
         }
     </script>
 </html>
