@@ -397,9 +397,6 @@
 
     async function import_file_manager(){
         let val = await pywebview.api.handle_import();
-        
-        pywebview.api.tempoutput(projectData);
-        
         initialized = true;
         employeeList = Object.keys(projectData["general"]["employeeSchedule"]);
         startDate = create_date_object(projectData["general"]["startDateStr"]);
