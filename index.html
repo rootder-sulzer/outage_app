@@ -395,8 +395,17 @@
         }
     }
 
-    function import_file_manager(){
-        pywebview.api.handle_import();
+    async function import_file_manager(){
+        var val = await pywebview.api.handle_import();
+        initialized = true;
+        employeeList = Object.keys(projectData["general"]["employeeSchedule"]);
+        startDate = create_date_object(projectData["general"]["startDateStr"]);
+        lastDate = create_date_object(projectData["general"]["lastDateStr"]);
+        daysInRange = Math.round(Math.abs(lastDate - startDate) / 86400000);
+
+        setup_sidebar();
+        setup_dates();
+        build_projects();
     }
 
     function export_file_manager() {
@@ -760,8 +769,6 @@
                 onclick="build_projects()">refresh</button>
                 <button onclick="import_file_manager()">Import</button>
                 <button onclick="export_file_manager()">Export</button>
-                <!-- <button onclick="import_file_manager(handle_file_import)">Import</button>
-                <button onclick="export_file_manager(handle_file_export)">Export</button> -->
                 <div style="grid-column: 1/3;"></div>
 
             <label for="outageBtn">Outage:</label>
