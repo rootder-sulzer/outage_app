@@ -8,4 +8,9 @@
         <h1 id="title">HELLO WORLD!</h1>
         <div id="move_item" class="boxsize box">MOVE ME</div>
     </body>
+    <script>
+        document.getElementById("move_item").addEventListener("click",()=>{
+            pywebview.api.sayHi();
+        })
+    </script>
 </html>
