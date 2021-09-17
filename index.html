@@ -395,8 +395,8 @@
         }
     }
 
-    function import_file_manager(){
-        pywebview.api.handle_import();
+    async function import_file_manager(){
+        let val = await pywebview.api.handle_import();
         
         pywebview.api.tempoutput(projectData);
         
