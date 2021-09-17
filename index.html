@@ -403,13 +403,6 @@
         pywebview.api.handle_export(JSON.stringify(projectData));
     }
 
-    function export_file_manager(callback) {
-        if (initialized == false) { return 0; }
-        update_over_capacity();
-        let todayDate = new Date().toISOString().substring(0, 10);
-        handle_file_export(JSON.stringify(projectData), `schedule_capacity_(${todayDate}).json`, "txt");
-    }
-
     function update_over_capacity(){
         for(const project_id of Object.keys(projectData["projects"])){
             for(const task_id of Object.keys(projectData["projects"][project_id]["tasks"])){
